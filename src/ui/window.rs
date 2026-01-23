@@ -51,13 +51,14 @@ impl Plugin for WindowPlugin {
             DuocombWindow::plugin(),
             StarWindow::plugin(),
             CompoundWindow::plugin(),
+            BlendWindow::plugin(),
             TruncateWindow::plugin(),
             ScaleWindow::plugin(),
-            FacetingSettings::plugin(),
-            RotateWindow::plugin()))
+            FacetingSettings::plugin()))
         .add_plugins((
             PlaneWindow::plugin(),
-            TranslateWindow::plugin()));
+            TranslateWindow::plugin(),
+            RotateWindow::plugin()));
     }
 }
 
@@ -1414,6 +1415,73 @@ impl DuoWindow for CompoundWindow {
         &mut self.slots
     }
 }
+
+
+
+
+
+
+
+/// A window that allows a user to blend polytopes, either using the polytopes
+/// in memory or the currently loaded one.
+#[derive(Default, Resource)]
+pub struct BlendWindow {
+    /// Whether the window is open.
+    open: bool,
+
+    /// The slots that are currently selected.
+    slots: [Slot; 2],
+}
+
+impl Window for BlendWindow {
+    const NAME: &'static str = "Blend";
+
+    fn is_open(&self) -> bool {
+        self.open
+    }
+
+    fn is_open_mut(&mut self) -> &mut bool {
+        &mut self.open
+    }
+}
+
+impl DuoWindow for BlendWindow {
+    fn operation(&self, p: &Concrete, q: &Concrete) -> Concrete {
+        let mut p2 = p.clone();
+        p2.comp_append(q.clone());
+        p2.blend()
+    }
+
+    fn name_action(&self, name: &mut String, memory: &Memory) {
+        let name_a = match self.slots[0] {
+            Slot::Loaded => name.clone(),
+            Slot::Memory(i) => match &memory[i].as_ref().unwrap().1 {
+                Some(label) => label.to_string(),
+                None => format!("polytope {}", i),
+            },
+            Slot::None => "".to_string(),
+        };
+        let name_b = match self.slots[1] {
+            Slot::Loaded => name.clone(),
+            Slot::Memory(i) => match &memory[i].as_ref().unwrap().1 {
+                Some(label) => label.to_string(),
+                None => format!("polytope {}", i),
+            },
+            Slot::None => "".to_string(),
+        };
+
+        *name = format!("Blend of ({}, {})", name_a, name_b);
+    }
+
+    fn slots(&self) -> [Slot; 2] {
+        self.slots
+    }
+
+    fn slots_mut(&mut self) -> &mut [Slot; 2] {
+        &mut self.slots
+    }
+}
+
 
 /// A window to configure a truncation of the polytope.
 #[derive(Default, Resource)]

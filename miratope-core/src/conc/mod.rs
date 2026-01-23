@@ -975,6 +975,9 @@ pub trait ConcretePolytope: Polytope {
     
     /// Compounds coplanar facets
     fn fuse_facets(&self) -> Self;
+
+    /// Self-blends a polytope
+    fn blend(&self) -> Self;
     
 }
 
@@ -1389,6 +1392,248 @@ impl ConcretePolytope for Concrete {
         
         builder.push_max();
         unsafe { Self::new(self.vertices.clone(),builder.build()) }
+    }
+
+    fn blend(&self) -> Self {
+        let mut merge = HashMap::<usize,usize>::new();
+        let mut same_vertices: Vec<Vec<usize>> = vec![];
+        let mut vert_count = 0;
+
+        //Merge Vertices
+
+        let mut vertices: Vec<Point<f64>> = vec![];
+        for i in 0..self.vertices.len() {
+            for j in 0..i {
+                if (&self.vertices[i] - &self.vertices[j]).norm_squared() < f64::EPS {
+                    merge.insert(i,*merge.get(&j).unwrap());
+                    same_vertices[*merge.get(&j).unwrap()].push(i);
+                }
+            }
+            if !merge.contains_key(&i) {
+                merge.insert(i,vert_count);
+                vert_count+=1;
+                vertices.push(self.vertices[i].clone());
+                same_vertices.push(vec![i]);
+            }
+        }
+        
+        let mut same_elements = vec![same_vertices];
+
+        for rank in 2..self.rank() {
+
+            let mut merge2 = HashMap::<usize,usize>::new();
+            let mut merge3 = HashMap::<Vec<usize>,usize>::new();
+            let mut same_element: Vec<Vec<usize>> = vec![];
+            
+            let mut count = 0;
+
+            for i in 0..self.el_count(rank) {
+                let element = self.get_element(rank, i).unwrap();
+                
+                let mut mapped = vec![];
+                for j in 0..self.el_count(rank-1) {
+                    if element.subs.contains(&j) {
+                        mapped.push(*merge.get(&j).unwrap());
+                    }
+                }
+
+                mapped.sort();
+                mapped.dedup();
+                if merge3.contains_key(&mapped) {
+                    merge2.insert(i, *merge3.get(&mapped).unwrap());
+                    same_element[*merge3.get(&mapped).unwrap()].push(i);
+                } else {
+                    merge3.insert(mapped,i);
+                    merge2.insert(i,count);
+                    same_element.push(vec![i]);
+                    count+=1;
+                }
+            }
+            merge = merge2;
+            if rank == self.rank()-1 {
+                same_elements.push(same_element.iter().filter(|&x|x.len() == 1).map(|x| x.clone()).collect())
+            } else {
+                same_elements.push(same_element);
+            }
+        }
+        
+        let mut merges = vec![];
+
+        for i in 0..same_elements.len() {
+            let mut merge = HashMap::<usize,usize>::new();
+            for j in 0..same_elements[i].len() {
+                for &k in &same_elements[i][j] {
+                    merge.insert(k,j);
+                }
+            }
+            merges.push(merge);
+        }
+
+        let mut same_elements2 = vec![];
+
+        for rank in 2..self.rank() {
+            
+            let mut hyperplane_index = HashMap::<usize,usize>::new();
+            let mut hyperplane = HashMap::<Vec<usize>,usize>::new();
+            let mut compound: Vec<Vec<usize>> = vec![];
+            let mut count = 0;
+            for i in 0..same_elements[rank-1].len() {
+                let temp = self.element(rank, same_elements[rank-1][i][0]).unwrap();
+                let facetvert = temp.vertices.iter();
+                let subspace = Subspace::from_points_with(facetvert, rank-1).unwrap();
+                
+                let mut contained_vertices = self.vertices.iter().enumerate().filter(|x| subspace.is_outer(&x.1)).map(|x| x.0).collect::<Vec<usize>>();
+                contained_vertices.sort();
+                if hyperplane.contains_key(&contained_vertices) {
+                    let index = *hyperplane_index.get(hyperplane.get(&contained_vertices).unwrap()).unwrap();
+                    hyperplane_index.insert(i, index);
+                    compound[index].push(i);
+                } else {
+                    hyperplane.insert(contained_vertices,i);
+                    hyperplane_index.insert(i,count);
+                    compound.push(vec![i]);
+                    count+=1;
+                }
+            }
+            let mut subelement_indices = vec![];
+            for i in 0..same_elements[rank-1].len() {
+                let element = self.get_element(rank, same_elements[rank-1][i][0]).unwrap();
+                
+                let mut mapped = vec![];
+                for j in 0..self.el_count(rank-1) {
+                    if element.subs.contains(&j) {
+                        mapped.push(*merges[rank-2].get(&j).unwrap());
+                    }
+                }
+                subelement_indices.push(mapped);
+            }
+            let mut same_element2: Vec<Vec<usize>> = vec![];
+            let mut merge2 = HashMap::<usize,usize>::new();
+            for i in 0..subelement_indices.len() {
+                let coplanars: Vec<usize> = (i+1..subelement_indices.len()).filter(|x|hyperplane_index.get(x).unwrap() == hyperplane_index.get(&i).unwrap()).collect();
+                for j in coplanars {
+                    if subelement_indices[i].iter().any(|x| subelement_indices[j].contains(x)) {
+                        if merge2.contains_key(&i) {
+                            if merge2.contains_key(&j) {
+                                let mut indexi = *merge2.get(&i).unwrap();
+                                let mut indexj = *merge2.get(&j).unwrap();
+                                if indexi > indexj {
+                                    let temp = indexi;
+                                    indexi = indexj;
+                                    indexj = temp;
+                                }
+                                let mut same_elementj = same_element2[indexj].clone();
+                                same_element2[indexi].append(&mut same_elementj);
+                                same_element2.remove(indexj);
+                                let mut temp_merge = HashMap::<usize,usize>::new();
+                                let keys: Vec<&usize> = merge2.keys().collect();
+                                for &k in keys {
+                                    let indexk = *merge2.get(&k).unwrap();
+                                    if indexk > indexj {
+                                        temp_merge.insert(k,indexk-1);
+                                    } else if indexk == indexj {
+                                        temp_merge.insert(k,indexi);
+                                    } else {
+                                        temp_merge.insert(k,indexk);
+                                    }
+                                }
+                                merge2 = temp_merge;
+                            } else {
+                                same_element2[*merge2.get(&i).unwrap()].push(j);
+                                merge2.insert(j, *merge2.get(&i).unwrap());
+                            }
+                        } else {
+                            if merge2.contains_key(&j) {
+                                same_element2[*merge2.get(&j).unwrap()].push(i);
+                                merge2.insert(i, *merge2.get(&j).unwrap());
+                            } else {
+                                merge2.insert(i, same_element2.len());
+                                merge2.insert(j, same_element2.len());
+                                same_element2.push(vec![i,j]);
+                            }  
+                        }
+                    }
+                }
+                if !merge2.contains_key(&i) {
+                    merge2.insert(i, same_element2.len());
+                    same_element2.push(vec![i]);
+                }
+            }
+            same_elements2.push(same_element2);
+        }
+
+        
+        let mut merges2 = vec![];
+
+        for i in 0..same_elements2.len() {
+            let mut merge = HashMap::<usize,usize>::new();
+            for j in 0..same_elements2[i].len() {
+                for &k in &same_elements2[i][j] {
+                    merge.insert(k,j);
+                }
+            }
+            merges2.push(merge);
+        }
+
+        let mut prepolytope = vec![]; 
+        
+        for rank in 2..self.rank() {
+            let mut subelements: SubelementList = SubelementList::new();
+            for i in 0..same_elements2[rank-2].len() {
+                let mut subelement: Vec<usize> = vec![];
+                for &j in &same_elements2[rank-2][i] {
+                    let element = self.get_element(rank, same_elements[rank-1][j][0]).unwrap();
+                    
+                    let mut mapped = vec![];
+                    for k in 0..self.el_count(rank-1) {
+                        if element.subs.contains(&k) {
+                            mapped.push(*merges[rank-2].get(&k).unwrap());
+                        }
+                    }
+                    mapped.dedup();
+                    subelement.append(&mut mapped);
+                }
+                subelement.sort();
+                for j in (0..subelement.len()).rev() {
+                    if j+1 < subelement.len() && subelement[j] == subelement[j+1] {
+                        subelement.remove(j);
+                        subelement.remove(j);
+                    }
+                }
+                if rank == 2 {
+                    subelements.push(subelement.iter().map(|x| *x).collect());
+                } else {
+                    subelements.push(subelement.iter().map(|x| *merges2[rank-3].get(x).unwrap()).collect())
+                }
+            }
+            prepolytope.push(subelements);
+        }
+
+        
+        for i in (0..prepolytope.len()-1).rev() {
+            for j in (0..prepolytope[i].len()).rev() {
+                if  (&prepolytope[i+1]).into_iter().all(|x| !x.contains(&j)) {
+                    prepolytope[i+1] = (&prepolytope[i+1]).into_iter().map(|x| x.into_iter().filter(|y| **y != j).map(|y| if *y > j {y-1} else {*y}).collect()).collect();
+                    prepolytope[i].remove(j);
+                }
+            }  
+        }
+        let mut builder = AbstractBuilder::new();
+        builder.push_min();
+        
+        builder.push_vertices(vert_count);
+        for i in 0..prepolytope.len() {
+            builder.push_empty();
+            for j in 0..prepolytope[i].len() {
+                builder.push_subs(prepolytope[i][j].clone());
+            }
+        }
+        builder.push_max();
+
+        unsafe { 
+            let poly = builder.build();
+            Self::new(vertices,poly)
+        }
     }
 }
 
