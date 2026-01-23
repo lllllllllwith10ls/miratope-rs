@@ -1451,7 +1451,7 @@ impl ConcretePolytope for Concrete {
             }
             merge = merge2;
             if rank == self.rank()-1 {
-                same_elements.push(same_element.iter().filter(|&x|x.len() == 1).map(|x| x.clone()).collect())
+                same_elements.push(same_element.iter().filter(|&x|x.len()%2 == 1).map(|x| x.clone()).collect())
             } else {
                 same_elements.push(same_element);
             }
@@ -1617,6 +1617,13 @@ impl ConcretePolytope for Concrete {
                     prepolytope[i].remove(j);
                 }
             }  
+        }
+        for j in (0..vert_count).rev() {
+            if  (&prepolytope[0]).into_iter().all(|x| !x.contains(&j)) {
+                prepolytope[0] = (&prepolytope[0]).into_iter().map(|x| x.into_iter().filter(|y| **y != j).map(|y| if *y > j {y-1} else {*y}).collect()).collect();
+                vertices.remove(j);
+                vert_count -= 1;
+            }
         }
         let mut builder = AbstractBuilder::new();
         builder.push_min();
