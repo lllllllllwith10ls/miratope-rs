@@ -1440,8 +1440,8 @@ impl ConcretePolytope for Concrete {
                 mapped.sort();
                 mapped.dedup();
                 if merge3.contains_key(&mapped) {
-                    merge2.insert(i, *merge3.get(&mapped).unwrap());
-                    same_element[*merge3.get(&mapped).unwrap()].push(i);
+                    merge2.insert(i, *merge2.get(merge3.get(&mapped).unwrap()).unwrap());
+                    same_element[*merge2.get(&i).unwrap()].push(i);
                 } else {
                     merge3.insert(mapped,i);
                     merge2.insert(i,count);
@@ -1590,6 +1590,7 @@ impl ConcretePolytope for Concrete {
                             mapped.push(*merges[rank-2].get(&k).unwrap());
                         }
                     }
+                    mapped.sort();
                     mapped.dedup();
                     subelement.append(&mut mapped);
                 }
@@ -1601,10 +1602,13 @@ impl ConcretePolytope for Concrete {
                     }
                 }
                 if rank == 2 {
-                    subelements.push(subelement.iter().map(|x| *x).collect());
+                    subelement = subelement.iter().map(|x| *x).collect();
                 } else {
-                    subelements.push(subelement.iter().map(|x| *merges2[rank-3].get(x).unwrap()).collect())
+                    subelement = subelement.iter().map(|x| *merges2[rank-3].get(x).unwrap()).collect();
                 }
+                subelement.sort();
+                subelement.dedup();
+                subelements.push(subelement.into());
             }
             prepolytope.push(subelements);
         }
