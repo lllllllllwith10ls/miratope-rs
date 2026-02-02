@@ -5,6 +5,7 @@ pub mod gen_iter;
 pub mod group_item;
 pub mod pairs;
 pub mod permutation;
+pub mod cosets;
 
 pub use gen_iter::*;
 
@@ -15,9 +16,9 @@ use std::{
 };
 
 use crate::{
-    cox::{cd::CdResult, Cox},
+    cox::{Cox, cd::CdResult},
     float::Float,
-    geometry::Matrix,
+    geometry::Matrix, group::cosets::Coset,
 };
 
 use self::{
@@ -121,6 +122,38 @@ where
         let vec: Vec<_> = self.collect();
         unsafe { Group::new(D::from_usize(vec.len()), PermutationIter::new(vec)) }
     }
+
+    
+    /// Builds a coset by taking a subgroup and multiplying it by an element.
+    ///
+    /// # Safety
+    /// The subgroup should be a subgroup, and the element should be an element of the group.
+    pub unsafe fn coset(self, h: Group<I>, g: I::Item) -> Coset<vec::IntoIter<I::Item>> {
+        unsafe { Coset::new(self.dim, h.map(|x| g.mul(&x)).collect::<Vec<_>>().into_iter()) }
+    }
+
+    /// Builds all cosets of a subgroup, with cosets identified using f.
+    ///
+    /// # Safety
+    /// The subgroup should indeed be a subgroup.
+    pub unsafe fn cosets<F: FnMut(&I::Item, &I::Item) -> bool>(self, h: Group<I>, mut f: F) -> Vec<Coset<vec::IntoIter<I::Item>>> 
+    where I::Item: Clone {
+        let group= self.cache();
+        let grouph = h.cache();
+        let mut vec: Vec<_> = vec![];
+        let mut result: Vec<_> = vec![];
+        unsafe {
+            for g in group.clone().iter {
+                if !vec.iter().any(|x| f(&g,x)) {
+                    let coset = group.clone().coset(grouph.clone(), g.clone());
+                    result.push(coset.clone());
+                    vec.append(&mut coset.collect());
+                }
+            }
+        }
+        result
+    }
+
 }
 
 impl<T: GroupItem> Group<Once<T>> {

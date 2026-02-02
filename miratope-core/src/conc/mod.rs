@@ -978,6 +978,12 @@ pub trait ConcretePolytope: Polytope {
 
     /// Self-blends a polytope
     fn blend(&self) -> Self;
+
+    /// Takes the orbit of the polytope under a symmetry.
+    fn compound_by_symmetry(&self, p: Self) -> Self;
+    
+    /// Identifies vertices
+    fn identify_vertices(&self) -> Self;
     
 }
 
@@ -1431,13 +1437,11 @@ impl ConcretePolytope for Concrete {
                 let element = self.get_element(rank, i).unwrap();
                 
                 let mut mapped = vec![];
-                for j in 0..self.el_count(rank-1) {
-                    if element.subs.contains(&j) {
-                        mapped.push(*merge.get(&j).unwrap());
-                    }
+                for j in element.subs.clone() {
+                    mapped.push(*merge.get(&j).unwrap());
                 }
 
-                mapped.sort();
+                mapped.sort_unstable();
                 mapped.dedup();
                 if merge3.contains_key(&mapped) {
                     merge2.insert(i, *merge2.get(merge3.get(&mapped).unwrap()).unwrap());
@@ -1451,7 +1455,7 @@ impl ConcretePolytope for Concrete {
             }
             merge = merge2;
             if rank == self.rank()-1 {
-                same_elements.push(same_element.iter().filter(|&x|x.len()%2 == 1).map(|x| x.clone()).collect())
+                same_elements.push(same_element.iter().filter(|&x|x.len()%2 == 1).cloned().collect())
             } else {
                 same_elements.push(same_element);
             }
@@ -1479,11 +1483,16 @@ impl ConcretePolytope for Concrete {
             let mut count = 0;
             for i in 0..same_elements[rank-1].len() {
                 let temp = self.element(rank, same_elements[rank-1][i][0]).unwrap();
-                let facetvert = temp.vertices.iter();
+                let facetvert = temp.vertices[0..rank].iter();
                 let subspace = Subspace::from_points_with(facetvert, rank-1).unwrap();
                 
-                let mut contained_vertices = self.vertices.iter().enumerate().filter(|x| subspace.is_outer(&x.1)).map(|x| x.0).collect::<Vec<usize>>();
-                contained_vertices.sort();
+                let mut contained_vertices = Vec::new();
+                for (idx, v) in vertices.iter().enumerate() {
+                    if subspace.distance(&v) < f64::EPS {
+                        contained_vertices.push(idx);
+                    }
+                }
+                contained_vertices.sort_unstable();
                 if hyperplane.contains_key(&contained_vertices) {
                     let index = *hyperplane_index.get(hyperplane.get(&contained_vertices).unwrap()).unwrap();
                     hyperplane_index.insert(i, index);
@@ -1500,10 +1509,8 @@ impl ConcretePolytope for Concrete {
                 let element = self.get_element(rank, same_elements[rank-1][i][0]).unwrap();
                 
                 let mut mapped = vec![];
-                for j in 0..self.el_count(rank-1) {
-                    if element.subs.contains(&j) {
-                        mapped.push(*merges[rank-2].get(&j).unwrap());
-                    }
+                for j in element.subs.clone() {
+                    mapped.push(*merges[rank-2].get(&j).unwrap());
                 }
                 subelement_indices.push(mapped);
             }
@@ -1585,16 +1592,14 @@ impl ConcretePolytope for Concrete {
                     let element = self.get_element(rank, same_elements[rank-1][j][0]).unwrap();
                     
                     let mut mapped = vec![];
-                    for k in 0..self.el_count(rank-1) {
-                        if element.subs.contains(&k) {
-                            mapped.push(*merges[rank-2].get(&k).unwrap());
-                        }
+                    for k in element.subs.clone() {
+                        mapped.push(*merges[rank-2].get(&k).unwrap());
                     }
-                    mapped.sort();
+                    mapped.sort_unstable();
                     mapped.dedup();
                     subelement.append(&mut mapped);
                 }
-                subelement.sort();
+                subelement.sort_unstable();
                 for j in (0..subelement.len()).rev() {
                     if j+1 < subelement.len() && subelement[j] == subelement[j+1] {
                         subelement.remove(j);
@@ -1602,11 +1607,11 @@ impl ConcretePolytope for Concrete {
                     }
                 }
                 if rank == 2 {
-                    subelement = subelement.iter().map(|x| *x).collect();
+                    subelement = subelement.iter().copied().collect();
                 } else {
                     subelement = subelement.iter().map(|x| *merges2[rank-3].get(x).unwrap()).collect();
                 }
-                subelement.sort();
+                subelement.sort_unstable();
                 subelement.dedup();
                 subelements.push(subelement.into());
             }
@@ -1637,6 +1642,74 @@ impl ConcretePolytope for Concrete {
             builder.push_empty();
             for j in 0..prepolytope[i].len() {
                 builder.push_subs(prepolytope[i][j].clone());
+            }
+        }
+        builder.push_max();
+
+        unsafe { 
+            let poly = builder.build();
+            Self::new(vertices,poly)
+        }
+    }
+
+    fn compound_by_symmetry(&self, mut p: Self) -> Self {
+        let subsymmetry = self.clone().get_symmetry_group().unwrap().0;
+        let symmetry = p.get_symmetry_group().unwrap().0;
+        let subsymmetry_elements: Vec<_> = subsymmetry.collect();
+        let cosets;
+        unsafe{
+            let intersection = symmetry.clone().sub(|x| subsymmetry_elements.iter().any(|y|x.relative_eq(y,f64::EPS,f64::EPS)));
+            cosets = symmetry.cosets(intersection.cache(), |x,y|x.relative_eq(y,f64::EPS,f64::EPS));
+        }
+        let coset = &cosets[0];
+        let transform = &coset.clone().collect::<Vec<_>>()[0];
+        let mut polytope = self.clone().apply(transform);
+        for i in 1..cosets.len() {
+            let coset = &cosets[i];
+            let transform = &coset.clone().collect::<Vec<_>>()[0];
+            polytope.comp_append(self.clone().apply(transform));
+        }
+        polytope.identify_vertices()
+    }
+    
+    fn identify_vertices(&self) -> Self {
+        let mut merge = HashMap::<usize,usize>::new();
+        let mut vert_count = 0;
+
+        //Merge Vertices
+
+        let mut vertices: Vec<Point<f64>> = vec![];
+        for i in 0..self.vertices.len() {
+            for j in 0..i {
+                if (&self.vertices[i] - &self.vertices[j]).norm_squared() < f64::EPS {
+                    merge.insert(i,*merge.get(&j).unwrap());
+                }
+            }
+            if !merge.contains_key(&i) {
+                merge.insert(i,vert_count);
+                vert_count+=1;
+                vertices.push(self.vertices[i].clone());
+            }
+        }
+        let mut edges = SubelementList::new();
+        for i in 0..self.el_count(2) {
+            let element = self.get_element(2, i).unwrap();
+            edges.push(element.subs.iter().map(|x| merge.get(x).unwrap()).copied().collect());
+        }
+        let mut builder = AbstractBuilder::new();
+        builder.push_min();
+        
+        builder.push_vertices(vert_count);
+        
+        builder.push_empty();
+        for i in 0..edges.len() {
+            builder.push_subs(edges[i].clone());
+        }
+
+        for i in 3..self.rank() {
+            builder.push_empty();
+            for j in 0..self.el_count(i) {
+                builder.push_subs(self.get_element(i, j).unwrap().subs.clone());
             }
         }
         builder.push_max();

@@ -319,7 +319,8 @@ pub type EguiWindows<'a> = (
     ResMut<'a, DuocombWindow>,
     ResMut<'a, StarWindow>,
     ResMut<'a, CompoundWindow>,
-    ResMut<'a, BlendWindow>), // Workaround for an argument count limit
+    ResMut<'a, BlendWindow>), // Workaround for an argument count limit,
+    ResMut<'a, SymCompoundWindow>,
     ResMut<'a, TruncateWindow>,
     ResMut<'a, ScaleWindow>,
     ResMut<'a, FacetingSettings>,
@@ -373,6 +374,7 @@ pub fn show_top_panel(
         mut star_window,
         mut compound_window,
         mut blend_window),
+        mut sym_compound_window,
         mut truncate_window,
         mut scale_window,
         mut faceting_settings,
@@ -754,7 +756,12 @@ pub fn show_top_panel(
                     compound_window.open();
                 }
 
-                // Opens the window to make compounds.
+                // Opens the window to make symmetric compounds.
+                if ui.button("Compound by symmetry...").clicked() {
+                    sym_compound_window.open();
+                }
+
+                // Opens the window to make blends.
                 if ui.button("Blend...").clicked() {
                     blend_window.open();
                 }

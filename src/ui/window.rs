@@ -52,10 +52,11 @@ impl Plugin for WindowPlugin {
             StarWindow::plugin(),
             CompoundWindow::plugin(),
             BlendWindow::plugin(),
+            SymCompoundWindow::plugin(),
             TruncateWindow::plugin(),
-            ScaleWindow::plugin(),
-            FacetingSettings::plugin()))
+            ScaleWindow::plugin()))
         .add_plugins((
+            FacetingSettings::plugin(),
             PlaneWindow::plugin(),
             TranslateWindow::plugin(),
             RotateWindow::plugin()));
@@ -1471,6 +1472,67 @@ impl DuoWindow for BlendWindow {
         };
 
         *name = format!("Blend of ({}, {})", name_a, name_b);
+    }
+
+    fn slots(&self) -> [Slot; 2] {
+        self.slots
+    }
+
+    fn slots_mut(&mut self) -> &mut [Slot; 2] {
+        &mut self.slots
+    }
+}
+
+
+
+
+/// A window that allows a user to compound polytopes by symmetry of another polytope.
+/// in memory or the currently loaded one.
+#[derive(Default, Resource)]
+pub struct SymCompoundWindow {
+    /// Whether the window is open.
+    open: bool,
+
+    /// The slots that are currently selected.
+    slots: [Slot; 2],
+}
+
+impl Window for SymCompoundWindow {
+    const NAME: &'static str = "Compound by symmetry";
+
+    fn is_open(&self) -> bool {
+        self.open
+    }
+
+    fn is_open_mut(&mut self) -> &mut bool {
+        &mut self.open
+    }
+}
+
+impl DuoWindow for SymCompoundWindow {
+    fn operation(&self, p: &Concrete, q: &Concrete) -> Concrete {
+        p.compound_by_symmetry(q.clone())
+    }
+
+    fn name_action(&self, name: &mut String, memory: &Memory) {
+        let name_a = match self.slots[0] {
+            Slot::Loaded => name.clone(),
+            Slot::Memory(i) => match &memory[i].as_ref().unwrap().1 {
+                Some(label) => label.to_string(),
+                None => format!("polytope {}", i),
+            },
+            Slot::None => "".to_string(),
+        };
+        let name_b = match self.slots[1] {
+            Slot::Loaded => name.clone(),
+            Slot::Memory(i) => match &memory[i].as_ref().unwrap().1 {
+                Some(label) => label.to_string(),
+                None => format!("polytope {}", i),
+            },
+            Slot::None => "".to_string(),
+        };
+
+        *name = format!("Compound of {} under {} symmetry", name_a, name_b);
     }
 
     fn slots(&self) -> [Slot; 2] {
