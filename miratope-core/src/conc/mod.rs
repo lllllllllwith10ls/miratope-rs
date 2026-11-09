@@ -1483,7 +1483,7 @@ impl ConcretePolytope for Concrete {
             let mut count = 0;
             for i in 0..same_elements[rank-1].len() {
                 let temp = self.element(rank, same_elements[rank-1][i][0]).unwrap();
-                let facetvert = temp.vertices[0..rank].iter();
+                let facetvert = temp.vertices.iter();
                 let subspace = Subspace::from_points_with(facetvert, rank-1).unwrap();
                 
                 let mut contained_vertices = Vec::new();

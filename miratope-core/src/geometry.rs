@@ -241,6 +241,10 @@ impl<T: Float> Subspace<T> {
             }
         }
 
+        if subspace.rank() < rank {
+            return None;
+        }
+
         Some(subspace)
     }
 
